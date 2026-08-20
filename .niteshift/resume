@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# The live server connects to Redis at startup, so the containers have to be
+# back before the app services are restarted.
+set -euo pipefail
+
+ns services start plane-backend
+curl -sf --retry 90 --retry-all-errors --retry-delay 5 -o /dev/null http://localhost:8000/api/instances/
