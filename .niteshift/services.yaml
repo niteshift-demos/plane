@@ -1,0 +1,119 @@
+services:
+  - name: backend
+    command: |
+      unset PORT
+      docker compose -f docker-compose-local.yml up &
+      compose_pid=$!
+      caddy reverse-proxy --from http://:8001 --to http://localhost:8000 --change-host-header &
+      proxy_pid=$!
+      trap 'kill -TERM "$compose_pid" "$proxy_pid" 2>/dev/null || true' TERM INT
+      wait -n "$compose_pid" "$proxy_pid"
+      status=$?
+      kill -TERM "$compose_pid" "$proxy_pid" 2>/dev/null || true
+      wait "$compose_pid" "$proxy_pid" 2>/dev/null || true
+      exit "$status"
+    port: 8001
+    restart: always
+    stopGracePeriod: 45s
+  - name: frontend
+    command: |
+      unset PORT
+      pnpm turbo run dev --concurrency=18 --env-mode=loose
+    port: 3000
+    restart: always
+    stopGracePeriod: 20s
+    environment:
+      - name: __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+        value: .preview.niteshift.dev
+    auth:
+      type: cookie-file
+      command: |
+        python3 - <<'PY'
+        import http.cookiejar
+        import json
+        import os
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        task_suffix = os.environ["NITESHIFT_TASK_ID"].removeprefix("task_")
+        api_host = f"ns-8001-{task_suffix}.preview.niteshift.dev"
+        api_url = "http://localhost:8001"
+        web_url = f"https://ns-3000-{task_suffix}.preview.niteshift.dev"
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, request, file, code, message, headers, new_url):
+                return None
+
+        cookie_jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(cookie_jar),
+            NoRedirect(),
+        )
+
+        def open_with_retry(request):
+            for attempt in range(60):
+                try:
+                    return opener.open(request, timeout=10)
+                except urllib.error.HTTPError:
+                    raise
+                except (urllib.error.URLError, TimeoutError):
+                    if attempt == 59:
+                        raise
+                    time.sleep(2)
+
+        csrf_request = urllib.request.Request(
+            f"{api_url}/auth/get-csrf-token/",
+        )
+        with open_with_retry(csrf_request) as response:
+            csrf_token = json.load(response)["csrf_token"]
+        csrf_cookie = next(cookie.value for cookie in cookie_jar if cookie.name == "csrftoken")
+
+        login_data = urllib.parse.urlencode(
+            {
+                "email": "niteshift@plane.local",
+                "password": "NiteshiftPlane2026!",
+                "csrfmiddlewaretoken": csrf_token,
+            }
+        ).encode()
+        login_request = urllib.request.Request(
+            f"{api_url}/auth/sign-in/",
+            data=login_data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Cookie": f"csrftoken={csrf_cookie}",
+                "Origin": web_url,
+                "Referer": f"{web_url}/sign-in",
+                "X-CSRFToken": csrf_token,
+            },
+        )
+        try:
+            open_with_retry(login_request)
+        except urllib.error.HTTPError as error:
+            if error.code != 302:
+                raise
+
+        cookies = []
+        for cookie in cookie_jar:
+            cookies.append(
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": api_host,
+                    "path": cookie.path,
+                    "expires": cookie.expires or -1,
+                    "httpOnly": "httponly" in {key.lower() for key in cookie._rest},
+                    "secure": cookie.secure,
+                    "sameSite": "Lax",
+                }
+            )
+
+        if not any(cookie["name"] == "session-id" for cookie in cookies):
+            raise RuntimeError("Plane login did not create a session cookie")
+
+        state = {"cookies": cookies, "origins": []}
+        state_path = os.environ["NITESHIFT_AUTH_STATE_FILE"]
+        with open(state_path, "w", encoding="utf-8") as file:
+            json.dump(state, file)
+        PY

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+task_suffix="${NITESHIFT_TASK_ID#task_}"
+web_url="https://ns-3000-${task_suffix}.preview.niteshift.dev"
+admin_url="https://ns-3001-${task_suffix}.preview.niteshift.dev"
+space_url="https://ns-3002-${task_suffix}.preview.niteshift.dev"
+live_url="https://ns-3100-${task_suffix}.preview.niteshift.dev"
+api_url="https://ns-8001-${task_suffix}.preview.niteshift.dev"
+
+set_env() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+
+  if grep -q "^${name}=" "$file"; then
+    sed -i "s|^${name}=.*|${name}=\"${value}\"|" "$file"
+  else
+    printf '\n%s="%s"\n' "$name" "$value" >> "$file"
+  fi
+}
+
+corepack enable pnpm
+
+for app in web admin space; do
+  set_env "apps/${app}/.env" VITE_API_BASE_URL "$api_url"
+  set_env "apps/${app}/.env" VITE_WEB_BASE_URL "$web_url"
+  set_env "apps/${app}/.env" VITE_ADMIN_BASE_URL "$admin_url"
+  set_env "apps/${app}/.env" VITE_SPACE_BASE_URL "$space_url"
+  set_env "apps/${app}/.env" VITE_LIVE_BASE_URL "$live_url"
+done
+
+set_env apps/live/.env API_BASE_URL "$api_url"
+set_env apps/live/.env WEB_BASE_URL "$web_url"
+set_env apps/live/.env LIVE_BASE_URL "$live_url"
+set_env apps/live/.env REDIS_HOST localhost
+set_env apps/live/.env REDIS_URL redis://localhost:6379/
+set_env apps/api/.env CORS_ALLOWED_ORIGINS "$web_url,$admin_url,$space_url,$live_url"
+set_env apps/api/.env APP_BASE_URL "$web_url"
+set_env apps/api/.env ADMIN_BASE_URL "$admin_url"
+set_env apps/api/.env SPACE_BASE_URL "$space_url"
+set_env apps/api/.env LIVE_BASE_URL "$live_url"
+set_env apps/api/.env WEB_URL "$api_url"

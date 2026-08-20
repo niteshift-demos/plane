@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+task_suffix="${NITESHIFT_TASK_ID#task_}"
+web_url="https://ns-3000-${task_suffix}.preview.niteshift.dev"
+admin_url="https://ns-3001-${task_suffix}.preview.niteshift.dev"
+space_url="https://ns-3002-${task_suffix}.preview.niteshift.dev"
+live_url="https://ns-3100-${task_suffix}.preview.niteshift.dev"
+api_url="https://ns-8001-${task_suffix}.preview.niteshift.dev"
+
+set_env() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+
+  if grep -q "^${name}=" "$file"; then
+    sed -i "s|^${name}=.*|${name}=\"${value}\"|" "$file"
+  else
+    printf '\n%s="%s"\n' "$name" "$value" >> "$file"
+  fi
+}
+
+umask 077
+cp .env.example .env
+for app in web api space admin live; do
+  cp "apps/${app}/.env.example" "apps/${app}/.env"
+done
+
+for app in web admin space; do
+  set_env "apps/${app}/.env" VITE_API_BASE_URL "$api_url"
+  set_env "apps/${app}/.env" VITE_WEB_BASE_URL "$web_url"
+  set_env "apps/${app}/.env" VITE_ADMIN_BASE_URL "$admin_url"
+  set_env "apps/${app}/.env" VITE_SPACE_BASE_URL "$space_url"
+  set_env "apps/${app}/.env" VITE_LIVE_BASE_URL "$live_url"
+done
+
+set_env apps/live/.env API_BASE_URL "$api_url"
+set_env apps/live/.env WEB_BASE_URL "$web_url"
+set_env apps/live/.env LIVE_BASE_URL "$live_url"
+set_env apps/live/.env REDIS_HOST localhost
+set_env apps/live/.env REDIS_URL redis://localhost:6379/
+
+set_env apps/api/.env DEBUG 1
+set_env apps/api/.env SECRET_KEY niteshift-plane-development-secret-key-2026
+set_env apps/api/.env CORS_ALLOWED_ORIGINS "$web_url,$admin_url,$space_url,$live_url"
+set_env apps/api/.env APP_BASE_URL "$web_url"
+set_env apps/api/.env ADMIN_BASE_URL "$admin_url"
+set_env apps/api/.env SPACE_BASE_URL "$space_url"
+set_env apps/api/.env LIVE_BASE_URL "$live_url"
+set_env apps/api/.env WEB_URL "$api_url"
+set_env apps/api/.env AWS_S3_ENDPOINT_URL http://plane-minio:9000
+set_env apps/api/.env USE_MINIO 1
+
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm build
+docker compose -f docker-compose-local.yml build api worker beat-worker migrator
+
+ns services start backend
+curl --fail --silent --show-error --retry 90 --retry-all-errors --retry-connrefused --retry-delay 2 \
+  http://localhost:8000/api/instances/ >/dev/null
+
+docker compose -f docker-compose-local.yml exec -T api python manage.py shell <<'PY'
+from plane.bgtasks.workspace_seed_task import workspace_seed
+from plane.db.models import Profile, Project, User, Workspace, WorkspaceMember
+from plane.license.models import Instance, InstanceAdmin
+
+email = "niteshift@plane.local"
+password = "NiteshiftPlane2026!"
+
+instance = Instance.objects.first()
+if instance is None:
+    raise RuntimeError("Plane instance registration did not complete")
+if not instance.is_setup_done:
+    instance.is_setup_done = True
+    instance.save(update_fields=["is_setup_done"])
+
+user, _ = User.objects.get_or_create(
+    email=email,
+    defaults={
+        "username": email,
+        "display_name": "Niteshift Demo",
+        "first_name": "Niteshift",
+        "last_name": "Demo",
+        "is_email_verified": True,
+    },
+)
+if not user.check_password(password):
+    user.set_password(password)
+    user.is_password_autoset = False
+    user.is_email_verified = True
+    user.save(update_fields=["password", "is_password_autoset", "is_email_verified"])
+
+workspace, created = Workspace.objects.get_or_create(
+    slug="niteshift-demo",
+    defaults={"name": "Niteshift Demo", "owner": user},
+)
+WorkspaceMember.objects.get_or_create(
+    workspace=workspace,
+    member=user,
+    defaults={"role": 20},
+)
+
+profile, _ = Profile.objects.get_or_create(user=user)
+profile.is_onboarded = True
+profile.last_workspace_id = workspace.id
+profile.onboarding_step = {
+    "profile_complete": True,
+    "workspace_create": True,
+    "workspace_invite": True,
+    "workspace_join": True,
+}
+profile.save(update_fields=["is_onboarded", "last_workspace_id", "onboarding_step"])
+
+InstanceAdmin.objects.get_or_create(instance=instance, user=user, defaults={"role": 20})
+if created or not Project.objects.filter(workspace=workspace).exists():
+    workspace_seed(workspace.id)
+PY
