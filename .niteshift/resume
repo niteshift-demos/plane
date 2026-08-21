@@ -31,12 +31,14 @@ set_env() {
 corepack enable pnpm
 
 for app in web admin space; do
-  set_env "apps/${app}/.env" VITE_API_BASE_URL "$api_url"
   set_env "apps/${app}/.env" VITE_WEB_BASE_URL "$web_url"
   set_env "apps/${app}/.env" VITE_ADMIN_BASE_URL "$admin_url"
   set_env "apps/${app}/.env" VITE_SPACE_BASE_URL "$space_url"
   set_env "apps/${app}/.env" VITE_LIVE_BASE_URL "$live_url"
 done
+set_env apps/web/.env VITE_API_BASE_URL "$web_url"
+set_env apps/admin/.env VITE_API_BASE_URL "$api_url"
+set_env apps/space/.env VITE_API_BASE_URL "$api_url"
 
 set_env apps/live/.env API_BASE_URL "$api_url"
 set_env apps/live/.env WEB_BASE_URL "$web_url"

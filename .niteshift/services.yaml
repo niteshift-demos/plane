@@ -18,7 +18,33 @@ services:
   - name: frontend
     command: |
       unset PORT
-      pnpm turbo run dev --concurrency=18 --env-mode=loose
+      pnpm turbo run dev --filter='!web' --concurrency=18 --env-mode=loose &
+      turbo_pid=$!
+      pnpm --filter=web exec react-router dev --port 3200 &
+      web_pid=$!
+      caddy run --config /dev/stdin --adapter caddyfile <<'CADDY' &
+      {
+        admin off
+      }
+      :3000 {
+        @backend path /api/* /auth/*
+        handle @backend {
+          reverse_proxy http://localhost:8000 {
+            header_up Host localhost:8000
+          }
+        }
+        handle {
+          reverse_proxy http://localhost:3200
+        }
+      }
+      CADDY
+      proxy_pid=$!
+      trap 'kill -TERM "$turbo_pid" "$web_pid" "$proxy_pid" 2>/dev/null || true' TERM INT
+      wait -n "$turbo_pid" "$web_pid" "$proxy_pid"
+      status=$?
+      kill -TERM "$turbo_pid" "$web_pid" "$proxy_pid" 2>/dev/null || true
+      wait "$turbo_pid" "$web_pid" "$proxy_pid" 2>/dev/null || true
+      exit "$status"
     port: 3000
     restart: always
     stopGracePeriod: 20s
@@ -38,7 +64,7 @@ services:
         import urllib.request
 
         task_suffix = os.environ["NITESHIFT_TASK_ID"].removeprefix("task_")
-        api_host = f"ns-8001-{task_suffix}.preview.niteshift.dev"
+        web_host = f"ns-3000-{task_suffix}.preview.niteshift.dev"
         api_url = "http://localhost:8001"
         web_url = f"https://ns-3000-{task_suffix}.preview.niteshift.dev"
 
@@ -100,7 +126,7 @@ services:
                 {
                     "name": cookie.name,
                     "value": cookie.value,
-                    "domain": api_host,
+                    "domain": web_host,
                     "path": cookie.path,
                     "expires": cookie.expires or -1,
                     "httpOnly": "httponly" in {key.lower() for key in cookie._rest},
