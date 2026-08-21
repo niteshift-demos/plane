@@ -15,6 +15,11 @@ set_env() {
   local file="$1"
   local name="$2"
   local value="$3"
+  local desired="${name}=\"${value}\""
+
+  if grep -Fqx "$desired" "$file"; then
+    return
+  fi
 
   if grep -q "^${name}=" "$file"; then
     sed -i "s|^${name}=.*|${name}=\"${value}\"|" "$file"
