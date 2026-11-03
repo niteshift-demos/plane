@@ -12,28 +12,28 @@
 	}
 	@api path /api/* /auth/* /static/*
 	handle @api {
-		reverse_proxy localhost:8000
+		reverse_proxy 127.0.0.1:8000
 	}
 	handle /uploads/* {
-		reverse_proxy localhost:9000
+		reverse_proxy 127.0.0.1:9000
 	}
 	redir /god-mode /god-mode/ permanent
 	handle /god-mode/* {
-		reverse_proxy localhost:3001 {
+		reverse_proxy 127.0.0.1:3001 {
 			header_up Host localhost:3001
 		}
 	}
 	redir /spaces /spaces/ permanent
 	handle /spaces/* {
-		reverse_proxy localhost:3002 {
+		reverse_proxy 127.0.0.1:3002 {
 			header_up Host localhost:3002
 		}
 	}
 	handle /live/* {
-		reverse_proxy localhost:3100
+		reverse_proxy 127.0.0.1:3100
 	}
 	handle {
-		reverse_proxy localhost:3000 {
+		reverse_proxy 127.0.0.1:3000 {
 			header_up Host localhost:3000
 		}
 	}

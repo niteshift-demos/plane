@@ -10,9 +10,7 @@ services:
   # Turbo owns the four frontend processes; do not start duplicate pnpm dev servers.
   - name: frontends
     command: PORT=3100 pnpm dev
-envFiles:
-  - path: apps/web/.env
-    environment: &frontend
+    environment:
       - { name: VITE_API_BASE_URL, value: "" }
       - { name: VITE_WEB_BASE_URL, value: "" }
       - { name: VITE_ADMIN_BASE_URL, value: "" }
@@ -21,10 +19,7 @@ envFiles:
       - { name: VITE_SPACE_BASE_PATH, value: /spaces }
       - { name: VITE_LIVE_BASE_URL, value: "" }
       - { name: VITE_LIVE_BASE_PATH, value: /live }
-  - path: apps/admin/.env
-    environment: *frontend
-  - path: apps/space/.env
-    environment: *frontend
+envFiles:
   - path: apps/live/.env
     environment:
       - { name: PORT, value: "3100" }
