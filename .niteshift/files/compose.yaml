@@ -24,7 +24,7 @@ services:
     # Setup owns registration, fixtures, configuration, and bucket creation.
     command: bash -c "python manage.py wait_for_db && python manage.py wait_for_migrations && python manage.py runserver 0.0.0.0:8000"
     volumes:
-      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+      - ./.niteshift/files/django_settings:/code/plane/settings/niteshift:ro
     env_file: !override [.niteshift/files/development.env]
     environment: &origins
       WEB_URL: ${PLANE_WEB_URL:-http://localhost:8888}
@@ -36,7 +36,7 @@ services:
       - host.docker.internal:host-gateway
   worker:
     volumes:
-      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+      - ./.niteshift/files/django_settings:/code/plane/settings/niteshift:ro
     env_file: !override [.niteshift/files/development.env]
     environment: *origins
     command: celery -A plane worker -l info --concurrency=2
@@ -44,14 +44,14 @@ services:
       - host.docker.internal:host-gateway
   beat-worker:
     volumes:
-      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+      - ./.niteshift/files/django_settings:/code/plane/settings/niteshift:ro
     env_file: !override [.niteshift/files/development.env]
     environment: *origins
     extra_hosts:
       - host.docker.internal:host-gateway
   migrator:
     volumes:
-      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+      - ./.niteshift/files/django_settings:/code/plane/settings/niteshift:ro
     env_file: !override [.niteshift/files/development.env]
     environment: *origins
   plane-minio:

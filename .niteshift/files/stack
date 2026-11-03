@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PLANE_WEB_URL="${NITESHIFT_PORT_8888_URL:-http://localhost:8888}"
+PLANE_WEB_URL="${NITESHIFT_PORT_8888_URL:-}"
+# On the onboarding task the port URL may not yet be in the platform environment.
+if [ -z "$PLANE_WEB_URL" ]; then
+  PLANE_WEB_URL="$(ns services status --json | python3 -c '
+import json, sys
+services = json.load(sys.stdin)["services"]
+print(next((s.get("userAccessiblePreview", "") for s in services if s["name"] == "stack"), ""))
+')"
+fi
+export PLANE_WEB_URL="${PLANE_WEB_URL:-http://localhost:8888}"
 exec docker compose --env-file .niteshift/files/development.env -f docker-compose-local.yml -f .niteshift/files/compose.yaml up --no-build --remove-orphans
