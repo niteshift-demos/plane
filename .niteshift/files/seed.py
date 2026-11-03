@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from plane.db.models import User, Profile, Workspace, WorkspaceMember, Project, ProjectMember, State, Issue
 from plane.db.models.state import DEFAULT_STATES
+from plane.db.models.project import ProjectIdentifier
 from plane.license.models import Instance, InstanceAdmin
 
 with transaction.atomic():
@@ -59,11 +60,11 @@ with transaction.atomic():
         workspace=workspace, identifier="DEMO", defaults={"name": "Getting started", "created_by": user}
     )
     ProjectMember.objects.get_or_create(workspace=workspace, project=project, member=user, defaults={"role": 20})
+    ProjectIdentifier.objects.get_or_create(project=project, defaults={"workspace": workspace, "name": "DEMO"})
     for definition in DEFAULT_STATES:
-        if definition["group"] != "triage":
-            State.objects.get_or_create(
-                workspace=workspace, project=project, name=definition["name"], defaults=definition
-            )
+        State.all_state_objects.get_or_create(
+            workspace=workspace, project=project, name=definition["name"], defaults=definition
+        )
     state = State.objects.get(project=project, name="Todo")
     for name in ["Explore your workspace", "Create your first project", "Try the live editor"]:
         Issue.objects.get_or_create(
