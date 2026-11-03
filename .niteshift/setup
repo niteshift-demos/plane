@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Resolve the checkout through the platform root, including in taskless cache builds.
+repo="${NITESHIFT_CHECKOUT_ROOT:-$(dirname "$(dirname "$(realpath "$0")")")}/plane"
+if [ ! -f "$repo/package.json" ]; then
+  repo="$(dirname "$(dirname "$(realpath "$0")")")"
+fi
+cd "$repo"
+corepack enable pnpm
+# A warm cache needs no dependency work unless its inputs changed.
+stamp=node_modules/.niteshift-dependencies
+fingerprint="$(sha256sum pnpm-lock.yaml pnpm-workspace.yaml package.json | sha256sum | cut -d' ' -f1)"
+if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$fingerprint" ]; then
+  pnpm install --frozen-lockfile
+  printf '%s\n' "$fingerprint" > "$stamp"
+fi
+export PLANE_WEB_URL="${NITESHIFT_PORT_8888_URL:-http://localhost:8888}"
+compose=(docker compose --env-file .niteshift/files/development.env -f docker-compose-local.yml -f .niteshift/files/compose.yaml)
+"${compose[@]}" build api worker beat-worker migrator plane-minio
+"${compose[@]}" pull proxy
+"${compose[@]}" up -d --wait --wait-timeout 120 plane-db plane-redis plane-mq plane-minio
+"${compose[@]}" run --rm migrator
+"${compose[@]}" run --rm --no-deps -T api python manage.py shell < .niteshift/files/seed.py
+"${compose[@]}" run --rm --no-deps api python manage.py configure_instance
+"${compose[@]}" run --rm --no-deps api python manage.py create_bucket
+# Publish dotenv files and hand every long-running process to the supervisor.
+ns services up
+# Starting a process does not mean its port or its first Vite compile is ready.
+for path in /auth/get-csrf-token/ /; do
+  curl --fail --silent --show-error --retry 60 --retry-connrefused --retry-delay 2 \
+    --max-time 30 --output /dev/null "http://localhost:8888$path"
+done
