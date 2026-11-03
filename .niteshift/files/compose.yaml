@@ -1,0 +1,76 @@
+# Extend the repository's development stack; all database state stays sandbox-local.
+services:
+  plane-db:
+    env_file: !override [.niteshift/files/development.env]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U plane -d plane"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  plane-redis:
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  plane-mq:
+    env_file: !override [.niteshift/files/development.env]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+  api:
+    # Setup owns registration, fixtures, configuration, and bucket creation.
+    command: bash -c "python manage.py wait_for_db && python manage.py wait_for_migrations && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+    env_file: !override [.niteshift/files/development.env]
+    environment: &origins
+      WEB_URL: ${PLANE_WEB_URL:-http://localhost:8888}
+      APP_BASE_URL: ${PLANE_WEB_URL:-http://localhost:8888}
+      ADMIN_BASE_URL: ${PLANE_WEB_URL:-http://localhost:8888}
+      SPACE_BASE_URL: ${PLANE_WEB_URL:-http://localhost:8888}
+      CORS_ALLOWED_ORIGINS: http://localhost:8888,${PLANE_WEB_URL:-http://localhost:8888}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  worker:
+    volumes:
+      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+    env_file: !override [.niteshift/files/development.env]
+    environment: *origins
+    command: celery -A plane worker -l info --concurrency=2
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  beat-worker:
+    volumes:
+      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+    env_file: !override [.niteshift/files/development.env]
+    environment: *origins
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  migrator:
+    volumes:
+      - ./.niteshift/files/django_settings.py:/code/niteshift_settings.py:ro
+    env_file: !override [.niteshift/files/development.env]
+    environment: *origins
+  plane-minio:
+    image: plane-niteshift-minio:2025-10-15
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:9000/minio/health/ready]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    build:
+      context: .niteshift/files
+      dockerfile: Dockerfile.minio
+    env_file: !override [.niteshift/files/development.env]
+    # Run MinIO itself in the foreground. Setup creates the bucket via Django.
+    entrypoint: [minio]
+    command: server /export --console-address :9090
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./.niteshift/files/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -1,0 +1,40 @@
+{
+	admin off
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+:8888 {
+	header {
+		-X-Frame-Options
+		Content-Security-Policy "frame-ancestors 'self' https://niteshift.dev https://*.niteshift.dev"
+	}
+	@api path /api/* /auth/* /static/*
+	handle @api {
+		reverse_proxy localhost:8000
+	}
+	handle /uploads/* {
+		reverse_proxy localhost:9000
+	}
+	redir /god-mode /god-mode/ permanent
+	handle /god-mode/* {
+		reverse_proxy localhost:3001 {
+			header_up Host localhost:3001
+		}
+	}
+	redir /spaces /spaces/ permanent
+	handle /spaces/* {
+		reverse_proxy localhost:3002 {
+			header_up Host localhost:3002
+		}
+	}
+	handle /live/* {
+		reverse_proxy localhost:3100
+	}
+	handle {
+		reverse_proxy localhost:3000 {
+			header_up Host localhost:3000
+		}
+	}
+}

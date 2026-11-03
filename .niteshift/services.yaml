@@ -1,0 +1,34 @@
+services:
+  # One origin for the web app, admin, published spaces, API, uploads, and live editor.
+  - name: stack
+    command: .niteshift/files/stack
+    port: 8888
+    stopGracePeriod: 60s
+    auth:
+      type: cookie-file
+      command: python3 .niteshift/files/login.py
+  # Turbo owns the four frontend processes; do not start duplicate pnpm dev servers.
+  - name: frontends
+    command: PORT=3100 pnpm dev
+envFiles:
+  - path: apps/web/.env
+    environment: &frontend
+      - { name: VITE_API_BASE_URL, value: "" }
+      - { name: VITE_WEB_BASE_URL, value: "" }
+      - { name: VITE_ADMIN_BASE_URL, value: "" }
+      - { name: VITE_ADMIN_BASE_PATH, value: /god-mode }
+      - { name: VITE_SPACE_BASE_URL, value: "" }
+      - { name: VITE_SPACE_BASE_PATH, value: /spaces }
+      - { name: VITE_LIVE_BASE_URL, value: "" }
+      - { name: VITE_LIVE_BASE_PATH, value: /live }
+  - path: apps/admin/.env
+    environment: *frontend
+  - path: apps/space/.env
+    environment: *frontend
+  - path: apps/live/.env
+    environment:
+      - { name: PORT, value: "3100" }
+      - { name: API_BASE_URL, value: "http://localhost:8000" }
+      - { name: LIVE_BASE_PATH, value: /live }
+      - { name: LIVE_SERVER_SECRET_KEY, value: "niteshift-plane-live-development" }
+      - { name: REDIS_URL, value: "redis://localhost:6379/" }

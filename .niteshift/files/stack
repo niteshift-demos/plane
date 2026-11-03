@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export PLANE_WEB_URL="${NITESHIFT_PORT_8888_URL:-http://localhost:8888}"
+exec docker compose --env-file .niteshift/files/development.env -f docker-compose-local.yml -f .niteshift/files/compose.yaml up --no-build --remove-orphans
