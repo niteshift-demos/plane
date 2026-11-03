@@ -23,3 +23,10 @@ compose=(docker compose --env-file .niteshift/files/development.env -f docker-co
 "${compose[@]}" run --rm --no-deps -T api python manage.py shell < .niteshift/files/seed.py
 "${compose[@]}" run --rm --no-deps api python manage.py configure_instance
 "${compose[@]}" run --rm --no-deps api python manage.py create_bucket
+# Publish dotenv files and hand every long-running process to the supervisor.
+ns services up
+# Starting a process does not mean its port or its first Vite compile is ready.
+for path in /auth/get-csrf-token/ /; do
+  curl --fail --silent --show-error --retry 60 --retry-connrefused --retry-delay 2 \
+    --max-time 30 --output /dev/null "http://localhost:8888$path"
+done
